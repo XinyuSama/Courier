@@ -1,0 +1,395 @@
+　　3.1、用sequelize来操作数据库，同时安装mysql、mysql2
+　　cnpm install sequelize mysql mysql2 --save
+　　所有安装的依赖可以在package.json里查看：
+　　注意：我在使用时发现koa-static（处理静态文件的中间件），默认3.0.0版本会报错，于是更新成了最新版本
+　　使用cnpm install koa-static@5.0.0 --save更新，再查看package.json，版本变成了5.0.0即可
+　　3.2、连接数据库
+　　在项目根目录下建一个config文件夹，在该文件夹建一个js文件，取名db.js，用来配置数据库连接
+　　config-->db.js
+复制代码
+var Sequelize = require("sequelize")
+var sequelize = new Sequelize('paopao','root','happy',{
+    host:'localhost',
+    dialect:'mysql',
+    operatorsAliases:false,
+    dialectOptions:{
+        //字符集
+        charset:'utf8mb4',
+        collate:'utf8mb4_unicode_ci',
+        supportBigNumbers: true,
+        bigNumberStrings: true
+    },
+    pool:{
+        max: 5,
+        min: 0,
+        acquire: 30000,
+        idle: 10000
+    },
+    timezone: '+08:00'  //东八时区
+});
+
+module.exports = {
+    sequelize
+};
+复制代码
+
+　　paopao是我的数据库表名，root数据库用户名，happy数据库用户密码
+
+　　3.3、定义数据库模型
+　　在根目录建一个module文件夹，在module文件下面建一个user.js，用来定义数据模型，告诉sequelize怎么跟数据库的数据一一对应
+
+　　module-->user.js
+
+复制代码
+
+module.exports = function(sequelize,DataTypes){
+    return sequelize.define(
+        'user',
+        {
+            userId:{
+                type: DataTypes.INTEGER,
+                primaryKey: true,
+                allowNull: true,
+                autoIncrement: true
+            },
+            mobileNo:{
+                type: DataTypes.STRING,
+                allowNull: false,
+                field: 'mobileNo'
+            },
+            password:{
+                type: DataTypes.STRING,
+                allowNull: false,
+                field: 'password'
+            }
+        },
+        {
+            timestamps: false
+        }
+    );
+}
+复制代码
+
+　　3.4、数据库操作和功能处理
+　　controller-->user.js 添加以下代码　
+
+复制代码
+
+//引入db配置
+const db = require('../config/db')
+
+//引入sequelize对象
+const Sequelize = db.sequelize
+
+//引入数据表模型
+const user = Sequelize.import('../module/user')
+//自动创建表
+user.sync({ force: false }); 
+
+//数据库操作类
+class userModule {
+    static async userRegist(data) {
+        return await user.create({
+            password: data.password,
+            mobileNo: data.mobileNo
+        })
+    }
+
+    static async getUserInfo(mobileNo) {
+        return await user.findOne({
+            where: {
+                mobileNo
+            }
+        })
+    }
+}
+复制代码
+
+　　数据库操作有了，接下来进行功能处理，还是在该文件添加
+
+　　controller-->user.js 里添加该userController 类，并将之exports出去
+
+复制代码
+
+//功能处理
+class userController {
+    
+}
+
+module.exports = userController;
+复制代码
+
+　　用户注册：
+
+　　在 userController 类里添加用户注册逻辑
+
+复制代码
+
+//注册用户
+    static async create(ctx) {
+        const req = ctx.request.body;
+        if (req.mobileNo && req.password) {
+            try {
+                const query = await userModule.getUserInfo(req.mobileNo);
+                if (query) {
+                    ctx.response.status = 200;
+                    ctx.body = {
+                        code: -1,
+                        desc: '用户已存在'
+                    }
+                } else {
+                    const param = {
+                        password: req.password,
+                        mobileNo: req.mobileNo,
+                        userName: req.mobileNo
+                    }
+                    const data = await userModule.userRegist(param);
+
+                    ctx.response.status = 200;
+                    ctx.body = {
+                        code: 0,
+                        desc: '用户注册成功',
+                        userInfo: {
+                            mobileNo: req.mobileNo
+                        }
+                    }
+                }
+
+            } catch (error) {
+                ctx.response.status = 416;
+                ctx.body = {
+                    code: -1,
+                    desc: '参数不齐全'
+                }
+            }
+        }
+    }
+复制代码
+
+　　因为还要做登录超时token验证，用户登录成功还要返回token，为了生成token，我们需要安装几个中间件
+
+　　cnpm install jsonwebtoken --save　　导入jwt模块
+
+　　cnpm install koa-jwt --save　　koa提供的jwt中间件
+
+　　在app.js里添加如下代码：
+
+　　unless()表示里面的regist、login不做token验证
+
+复制代码
+
+const koajwt = require('koa-jwt')
+
+// logger
+app.use(async (ctx, next) => {
+  return next().catch((err) => {
+    if(err.status === 401){
+      ctx.status = 401;
+      ctx.body = {
+        code: '-2000',
+        desc: '登陆过期，请重新登陆'
+      };
+    }else{
+      throw err;
+    }
+  })
+})
+
+app.use(koajwt({
+  secret: '123456'
+}).unless({
+  path: [/^\/user\/regist/,/^\/user\/login/]
+}))
+复制代码
+
+　　为了解析token，在public目录下新建tool.js，加入解析token的代码
+
+复制代码
+
+const getToken = require('jsonwebtoken')
+
+exports.verToken = function(token){
+    return new Promise((resolve,rejece) => {
+        const info = getToken.verify(token.split(' ')[1],"123456");
+        resolve(info);
+    })
+}
+复制代码
+
+　　返回controller-->user.js，添加
+
+复制代码
+
+//引入jwt做token验证
+const jwt = require('jsonwebtoken')
+
+//解析token
+const tools = require('../public/tool')
+
+//统一设置token有效时间  为了方便观察，设为10s
+const expireTime = '10s'
+复制代码
+
+　　用户登录：
+
+　　之后就可以写用户登录逻辑了
+
+　　controller-->user.js-->userController 类里添加
+
+　　通过 jwt.asign() 方法生成token，这里的123456跟app.js里的123456相同，就理解为一个秘钥吧~~
+
+复制代码
+
+//密码登陆
+    static async login(ctx) {
+        const req = ctx.request.body;
+        if (!req.mobileNo || !req.password) {
+            return ctx.body = {
+                code: '-1',
+                msg: '用户名或密码不能为空'
+            }
+        } else {
+            const data = await userModule.getUserInfo(req.mobileNo);
+            if (data) {
+                if (data.password === req.passWord) {
+                    //生成token，验证登录有效期
+                    const token = jwt.sign({
+                        user: req.mobileNo,
+                        passWord: req.password
+                    }, '123456', { expiresIn: expireTime });
+                    const info = {
+                        createdAt: data.createdAt,
+                        updatedAt: data.updatedAt,
+                        mobileNo: data.mobileNo,
+                        userId: data.userId
+                    }
+                    return ctx.body = {
+                        code: '0',
+                        token: token,
+                        userInfo: JSON.stringify(info),
+                        desc: '登陆成功'
+                    }
+                } else {
+                    return ctx.body = {
+                        code: '-1',
+                        desc: '用户密码错误'
+                    }
+                }
+            } else {
+                return ctx.body = {
+                    code: '-1',
+                    desc: '该用户尚未注册'
+                }
+            }
+        };
+    }
+复制代码
+
+　　为了验证token是否过期，我们再定义一个获取用户信息的逻辑，登陆10s后获取用户信息，验证token是否过期
+
+　　获取用户信息：
+
+　　controller-->user.js-->userController 类里添加
+
+复制代码
+
+//获取用户信息(除密码外)
+    static async getUserInfo(ctx){
+        const req = ctx.request.body;
+        const token = ctx.headers.authorization;
+        if(token){
+            try {
+                const result = await tools.verToken(token);
+                if (!req.mobileNo) {
+                    return ctx.body = {
+                        code: '-1',
+                        desc: '参数错误'
+                    }
+                } else {
+                    let data = await userModule.getUserInfo(req.mobileNo);
+                    if (req.mobileNo == data.mobileNo) {
+                        const info = {
+                            createdAt: data.createdAt,
+                            updatedAt: data.updatedAt,
+                            mobileNo: data.mobileNo,
+                            userId: data.userId
+                        };
+                        return ctx.body = {
+                            code: '0',
+                            userInfo: JSON.stringify(info),
+                            desc: '获取用户信息成功'
+                        }
+                    }
+                }
+            } catch (error) {
+                ctx.status = 401;
+                return ctx.body = {
+                    code: '-1',
+                    desc: '登陆过期，请重新登陆'
+                }
+            }
+        }else{
+            ctx.status = 401;
+            return ctx.body = {
+                code: '-1',
+                desc: '登陆过期，请重新登陆'
+            }
+        }
+    }
+复制代码
+
+　　3.5、路由，即处理请求的url，使用koa-router
+　　不用重新导入，koa-generator已经帮我们导入了，直接使用
+
+　　在routes目录下新建文件 user.js
+
+　　写入以下代码：
+
+　　routes-->user.js
+
+复制代码
+
+const Router = require('koa-router');
+const userController = require('../controller/user')
+
+const router = new Router({
+    prefix: '/user'
+});
+
+//用户注册
+router.post('/regist',userController.create)
+
+//密码登陆
+router.post('/login',userController.login)
+
+//获取用户信息
+router.post('/getUserInfo',userController.getUserInfo)
+
+module.exports = router;
+复制代码
+
+　　然后在入口文件app.js引入
+
+　　
+
+　　使用
+
+　　
+
+　　完成这些以后，cnpm run dev 启动项目（依赖nodemon，package.json里面有，这样每次更改代码以后不用手动重新启动）
+
+　　启动正常如下：
+
+　　
+
+　　如果有报错，提示缺少这包那包的，不用着急！
+
+　　把根目录下的node_modules目录删除
+
+　　检查一遍package.json
+
+　　确认无误后重新cnpm install
+
+　　再次启动 cnpm run dev ~~~
+
+　　补充一点，如果想在其他端口启动，在app.js里添加 app.listen(3333)，修改为3333端口，自动热刷新~~~蛋是此时接口仍然不可调试，因为存在跨域问题

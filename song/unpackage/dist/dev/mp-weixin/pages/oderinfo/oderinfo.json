@@ -1,0 +1,9 @@
+{
+  "navigationBarTitleText": "",
+  "enablePullDownRefresh": false,
+  "usingComponents": {
+    "u-steps": "/node-modules/uview-ui/components/u-steps/u-steps",
+    "u-button": "/node-modules/uview-ui/components/u-button/u-button",
+    "u-action-sheet": "/node-modules/uview-ui/components/u-action-sheet/u-action-sheet"
+  }
+}

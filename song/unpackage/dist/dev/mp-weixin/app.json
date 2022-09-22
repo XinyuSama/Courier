@@ -1,0 +1,15 @@
+{
+  "pages": [
+    "pages/login/index",
+    "pages/index/index",
+    "pages/oderinfo/oderinfo"
+  ],
+  "subPackages": [],
+  "window": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "快递代取",
+    "navigationBarBackgroundColor": "#F8F8F8",
+    "backgroundColor": "#F8F8F8"
+  },
+  "usingComponents": {}
+}
